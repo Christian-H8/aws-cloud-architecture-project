@@ -2,9 +2,9 @@
 
 A progressive, hands-on AWS architecture project built to demonstrate real cloud operations skills: provisioning, access control, storage management, cost optimization, monitoring, and fault diagnosis. Each phase intentionally introduces a misconfiguration that is traced and resolved using AWS-native logging tools.
 
-**Status:** Phases 1–3 complete | Phases 4–7 in progress  
-**Services used so far:** EC2, IAM, S3, VPC, CloudWatch, SNS, AWS Budgets, CloudTrail, VPC Flow Logs  
-**Target roles:** Cloud Support Associate · Junior Systems Administrator · Cloud Operations Specialist
+**Status:** Phases 1–4 complete | Phases 5–7 in progress  
+**Services used so far:** EC2, IAM, S3, VPC, ALB, RDS, CloudWatch, SNS, AWS Budgets, CloudTrail, VPC Flow Logs  
+**Target roles:** Cloud Support Associate · Junior Systems Administrator · Cloud Operations Specialist · Cloud Engineer · DevOps Engineer
 
 ---
 
@@ -12,7 +12,7 @@ A progressive, hands-on AWS architecture project built to demonstrate real cloud
 
 ![Architecture Diagram](architecture.svg)
 
-> Current state: Phases 1–3 complete. Diagram regenerated at the end of each phase.
+> Current state: Phases 1–4 complete. Diagram regenerated at the end of each phase.
 
 ---
 
@@ -30,8 +30,8 @@ A progressive, hands-on AWS architecture project built to demonstrate real cloud
 ### What I broke and how I found it
 Stopped the application process on the EC2 instance to simulate a service outage. Watched the CloudWatch alarm transition from OK to ALARM state, received the SNS email notification, and confirmed the failure in CloudWatch Logs. This validated the full monitoring pipeline: failure → metric breach → alarm → notification.
 
-![CloudWatch alarm in ALARM state](screenshots/p1-phase1-CloudWatchAlarm.png)
-![SNS email notification](screenshots/p1-phase1-SNS-Email.png)
+![CloudWatch alarm in ALARM state](screenshots/phase1-CloudWatchAlarm.png)
+![SNS email notification](screenshots/phase1-SNS-Email.png)
 
 ### What I learned
 - Stopped EC2 instances report missing data rather than a failed status check — CloudWatch alarms need to be configured to treat missing data as breaching, otherwise a powered-off instance shows as healthy
@@ -55,14 +55,14 @@ Stopped the application process on the EC2 instance to simulate a service outage
 - Applied least-privilege access using two independent layers: an IAM policy scoped to the user identity, and a bucket policy scoped to the resource — both must allow the action for access to succeed
 - Created a dedicated logging bucket and enabled S3 server access logging (object-level HTTP request activity) and a CloudTrail trail (control-plane API activity) for full audit coverage
 
-![Lifecycle rule configuration](screenshots/p1-phase2-LifecycleRule.png)
+![Lifecycle rule configuration](screenshots/phase2-LifecycleRule.png)
 
 ### What I broke and how I found it
 Applied a bucket policy with `"Effect": "Deny", "Principal": "*", "Action": "s3:*"` — a deny-all that locked out every principal in the account, including my own admin user. Confirmed the break by attempting to access the Objects tab and receiving an Access Denied error.
 
 Traced the misconfiguration in CloudTrail Event History by filtering on the bucket name and locating the `PutBucketPolicy` event. The full JSON of the deny policy was visible in the event record, showing exactly when the change was made and under which identity.
 
-![CloudTrail event record showing the deny policy](screenshots/p1-phase2-EventRecord-Deny.png)
+![CloudTrail event record showing the deny policy](screenshots/phase2-EventRecord-Deny.png)
 
 Recovery required signing in as the root user — the only principal that retains bucket policy management access regardless of resource-based deny policies. Replaced the deny-all with the original scoped allow policy and confirmed access was restored.
 
@@ -87,24 +87,24 @@ Recovery required signing in as the root user — the only principal that retain
 - Re-launched the EC2 web server into `project1-public-2a`, replacing the default VPC deployment with a properly isolated network
 - Enabled VPC Flow Logs on the VPC, shipping to a CloudWatch Logs log group with 7-day retention
 
-![VPC Resource Map showing full topology](screenshots/p1-phase3-VPC-ResourceMap.png)
+![VPC Resource Map showing full topology](screenshots/phase3-VPC-ResourceMap.png)
 
-![Public route table with 0.0.0.0/0 → IGW](screenshots/p1-phase3-PublicRouteTable.png)
-![Private route table with 0.0.0.0/0 → NAT](screenshots/p1-phase3-PrivateRouteTable.png)
+![Public route table with 0.0.0.0/0 → IGW](screenshots/phase3-PublicRouteTable.png)
+![Private route table with 0.0.0.0/0 → NAT](screenshots/phase3-PrivateRouteTable.png)
 
-![NAT Gateway with attached Elastic IP](screenshots/p1-phase3-NATGateway.png)
-![EC2 web server running in project1-public-2a](screenshots/p1-phase3-EC2-InVPC.png)
-![VPC Flow Logs configured with 7-day retention](screenshots/p1-phase3-FlowLogs-Config.png)
+![NAT Gateway with attached Elastic IP](screenshots/phase3-NATGateway.png)
+![EC2 web server running in project1-public-2a](screenshots/phase3-EC2-InVPC.png)
+![VPC Flow Logs configured with 7-day retention](screenshots/phase3-FlowLogs-Config.png)
 
 ### What I broke and how I found it
 Deleted the `0.0.0.0/0 → IGW` route from the public route table to simulate a misconfigured network. The EC2 instance stayed running and healthy at the status-check level, but the site was unreachable — browser requests timed out, and `curl` confirmed a connection timeout with no response.
 
-![Public route table with the IGW route removed](screenshots/p1-phase3-PublicRouteTable-Broken.png)
-![curl timing out while the site is down](screenshots/p1-phase3-Curl-Timeout.png)
+![Public route table with the IGW route removed](screenshots/phase3-PublicRouteTable-Broken.png)
+![curl timing out while the site is down](screenshots/phase3-Curl-Timeout.png)
 
 Opened VPC Flow Logs expecting to see REJECT entries for the dropped traffic. Instead, Flow Logs showed ACCEPT entries for inbound packets from my IP on port 80 — indistinguishable from a healthy site. The inbound packets were passing the security group check on arrival, so Flow Logs recorded them as ACCEPT. The actual failure was on the return path: the EC2 instance had no `0.0.0.0/0 → IGW` route to send the HTTP response back out to the internet, so the response packets never left the subnet. Flow Logs does not surface that kind of routing failure as a REJECT — it simply never records the response side of the conversation.
 
-![Flow Logs showing ACCEPT entries despite the broken route](screenshots/p1-phase3-FlowLogs.png)
+![Flow Logs showing ACCEPT entries despite the broken route](screenshots/phase3-FlowLogs.png)
 
 This is the lesson the exercise actually teaches: ACCEPT in Flow Logs means a packet was not blocked. It does not mean the connection succeeded. When a site is down but Flow Logs shows ACCEPT, the failure is downstream of the security group — most often a routing or NAT problem on the return path. The diagnostic signal here was the contrast between `curl` (timeout) and Flow Logs (ACCEPT), not the presence of a REJECT entry.
 
@@ -123,11 +123,57 @@ Restored the IGW route and confirmed the site loaded again.
 
 ---
 
-## Phases 4–7 — In Progress
+## Phase 4 — ALB + RDS Multi-AZ
+
+**Services:** EC2, ALB, RDS MySQL, IAM, S3, Security Groups
+
+### What I built
+- Designed a three-layer security group chain: `project1-alb-sg` accepts HTTP from the internet, `project1-sg-web` accepts HTTP only from `project1-alb-sg`, and `project1-rds-sg` accepts MySQL only from `project1-sg-web` — no CIDR ranges, only SG references
+- Launched a second EC2 instance in `project1-public-1b` (us-east-2b) to mirror the existing instance in us-east-2a, spreading the application tier across two Availability Zones
+- Created an Application Load Balancer in both public subnets with a target group registering both EC2 instances — external traffic now routes through the ALB DNS name, never directly to EC2 public IPs
+- Enabled ALB access logs shipping to S3 every 5 minutes; AWS writes an `ELBAccessLogTestFile` on enable to confirm bucket policy permissions are correct
+- Created a DB subnet group across `project1-private-1a` and `project1-private-1b`, then launched RDS MySQL Multi-AZ on `db.t3.micro` with public access disabled — the database sits entirely in private subnets, unreachable from the internet
+- Attached an IAM role (`project1-ec2-role`) to both EC2 instances with `AmazonS3ReadOnlyAccess` to allow reading ALB logs from the instance without embedded credentials
+- Verified network reachability from both EC2 instances to the RDS endpoint on port 3306 using the MySQL CLI. The application running on the web tier is a static page (PIFID — prime index factor ID) and does not query the database; RDS was deployed in this phase to practice Multi-AZ provisioning, security group chaining, and connectivity troubleshooting, not to back the web app
+
+![Application Load Balancer configured across both public subnets](screenshots/phase4-ALB.png)
+![Target group with both EC2 instances registered](screenshots/phase4-TG.png)
+![Static PIFID page served through the ALB DNS hostname](screenshots/phase4-AppViaALB.png)
+![RDS MySQL Multi-AZ instance in the private subnets](screenshots/phase4-RDS.png)
+
+### What I broke and how I found it
+Deleted the `MySQL/Aurora / 3306 / project1-sg-web` inbound rule from `project1-rds-sg` to simulate a misconfigured security group — the most common Cloud Support ticket pattern for database connectivity failures.
+
+![RDS security group with the MySQL inbound rule removed](screenshots/phase4-RDS_SG.png)
+
+The application continued serving pages normally. The ALB health checks kept passing and no 502s appeared in the access logs, because Apache returns HTTP 200 for every page load regardless of whether the database is reachable. The failure was completely silent at the HTTP layer.
+
+The only signal was the MySQL CLI: a connection attempt from either EC2 instance hung for approximately two minutes before timing out with no response. The root cause was visible in the empty inbound rules on `project1-rds-sg` — the rule that permitted EC2 to reach RDS on port 3306 was gone.
+
+This exercise taught the most important diagnostic lesson of Phase 4: ALB logs show what the load balancer sees, not what the application layer experiences. A broken database connection produces no HTTP errors if the web server handles the response independently. Diagnosing database connectivity failures requires probing the application layer directly, not reading HTTP status codes.
+
+Restored the rule and confirmed the MySQL connection re-established immediately.
+
+### What I learned
+- Security group chaining uses SG IDs as sources rather than CIDR ranges — any resource added to the referenced SG automatically inherits the permission without rule changes
+- The distinction between public and private subnets is purely a routing decision: a `0.0.0.0/0 → IGW` route makes a subnet public, not its name or the type of IP address assigned. All resources in a VPC receive a private RFC 1918 address regardless of subnet type
+- ALB access logs are delivered in 5-minute intervals, not in real time — the `ELBAccessLogTestFile` is written immediately on enable and confirms bucket policy permissions before the first log delivery
+- ALB deregistration delay defaults to 300 seconds — targets appear to drain slowly because the ALB waits for in-flight requests to complete before removing them from rotation
+- RDS Multi-AZ maintains a synchronous standby in a second AZ. On forced failover (reboot with failover), the primary went offline, the standby was promoted, and the connection restored automatically within 90 seconds — with no endpoint change required on the application side
+- IAM roles attached to EC2 instances are the correct credential pattern for AWS CLI access from within an instance — no access keys stored on disk, credentials rotate automatically via instance metadata
+
+![RDS Multi-AZ failover event in the console](screenshots/phase4-FailOver.png)
+
+---
+
+## Project Phases
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 4 | ALB + RDS Multi-AZ | Upcoming |
+| 1 | EC2 + CloudWatch + SNS + Billing Alarm | Complete |
+| 2 | S3 + IAM + Lifecycle + Logging | Complete |
+| 3 | VPC + Networking | Complete |
+| 4 | ALB + RDS Multi-AZ | Complete |
 | 5 | Auto Scaling Group | Upcoming |
 | 6 | Lambda + SQS (serverless + decoupling) | Upcoming |
 | 7 | CloudFront + Route 53 + ACM (optional polish) | Upcoming |
@@ -136,4 +182,12 @@ Restored the IGW route and confirmed the site loaded again.
 
 ## Cost Controls
 
-A billing budget alarm was configured in Phase 1 before any resources were provisioned. All compute uses t3.micro (Free Tier eligible). Resources not in active use are stopped to avoid unnecessary charges. The NAT Gateway (~$1/day) is deleted between sessions and recreated at the start of each working session to avoid idle charges.
+A billing budget alarm was configured in Phase 1 before any resources were provisioned. EC2 compute uses `t3.micro` instances, and RDS uses `db.t3.micro`.
+
+Phases 1–3 stayed within AWS Free Tier limits. Phase 4 introduces resources that fall outside Free Tier and incur ongoing charges, which are accepted as the cost of practicing production-grade architecture:
+
+- **RDS Multi-AZ** is not Free Tier — Free Tier RDS covers single-AZ `db.t2/t3.micro` only. The standby replica adds compute and storage cost
+- **Application Load Balancer** runs ~$16/month if left active continuously, plus per-LCU charges
+- **Second EC2 instance** in `public-1b` doubles compute hours
+
+Cost-mitigation patterns used in the project: EC2 instances are stopped between sessions; the NAT Gateway (~$1/day) is deleted between sessions and recreated at the start of each working session to avoid idle charges; the ALB and RDS instance are kept running between sessions while Phase 4 is active. Phase 5 onward will reintroduce teardown discipline for the ALB and RDS.
