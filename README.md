@@ -159,10 +159,11 @@ Restored the rule and confirmed the MySQL connection re-established immediately.
 - The distinction between public and private subnets is purely a routing decision: a `0.0.0.0/0 → IGW` route makes a subnet public, not its name or the type of IP address assigned. All resources in a VPC receive a private RFC 1918 address regardless of subnet type
 - ALB access logs are delivered in 5-minute intervals, not in real time — the `ELBAccessLogTestFile` is written immediately on enable and confirms bucket policy permissions before the first log delivery
 - ALB deregistration delay defaults to 300 seconds — targets appear to drain slowly because the ALB waits for in-flight requests to complete before removing them from rotation
-- RDS Multi-AZ maintains a synchronous standby in a second AZ. On forced failover (reboot with failover), the primary went offline, the standby was promoted, and the connection restored automatically within 90 seconds — with no endpoint change required on the application side
+- RDS Multi-AZ maintains a synchronous standby in a second AZ. On forced failover (reboot with failover), I observed the connection drop for approximately 2 minutes 13 seconds before recovering automatically through the same DB endpoint. The RDS event log explicitly recorded `Multi-AZ instance failover started → DB instance restarted → Multi-AZ instance failover completed`, and the instance's AZ moved from us-east-2a to us-east-2b — confirming the standby was promoted and AWS repointed the endpoint DNS automatically with no application-side configuration change
 - IAM roles attached to EC2 instances are the correct credential pattern for AWS CLI access from within an instance — no access keys stored on disk, credentials rotate automatically via instance metadata
 
-![RDS Multi-AZ failover event in the console](screenshots/phase4-FailOver.png)
+![MySQL CLI loop showing the connection drop and recovery across a Multi-AZ failover — outage from 15:00:59 to 15:03:12, approximately 2 minutes 13 seconds](screenshots/phase4-FailOver.png)
+![RDS event log showing the failover sequence and the instance now in us-east-2b](screenshots/phase4-FailOverEvents.png)
 
 ---
 
@@ -190,4 +191,4 @@ Phases 1–3 stayed within AWS Free Tier limits. Phase 4 introduces resources th
 - **Application Load Balancer** runs ~$16/month if left active continuously, plus per-LCU charges
 - **Second EC2 instance** in `project1-public-1b` doubles compute hours
 
-Cost-mitigation patterns used in the project: EC2 instances are stopped between sessions; the NAT Gateway (~$1/day) is deleted between sessions and recreated at the start of each working session to avoid idle charges; the ALB and RDS instance are kept running between sessions while Phase 4 is active. Phase 5 onward will reintroduce teardown discipline for the ALB and RDS.
+Cost-mitigation patterns: EC2 instances are stopped between sessions. The NAT Gateway is torn down because no current workload exercises it, and will be recreated when a future phase needs private-subnet egress. The ALB is kept running through the remaining phases. The RDS Multi-AZ instance will be stopped at the end of Phase 4 since no later phase requires a database.

@@ -41,10 +41,10 @@
 <rect x="40" y="284" width="156" height="118" rx="8" fill="white" stroke="#A7F3D0" stroke-width="0.5"/>
 <text x="118" y="302" text-anchor="middle" font-size="12" fill="#0F766E" dominant-baseline="central">public-1a</text>
 <text x="118" y="317" text-anchor="middle" font-size="11" fill="#6B7280" dominant-baseline="central">10.0.1.0/24</text>
-<rect x="50" y="329" width="136" height="32" rx="6" fill="#FFFBEB" stroke="#FCD34D" stroke-width="0.5"/>
-<text x="118" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#92400E" dominant-baseline="central">EC2 instance</text>
-<rect x="50" y="366" width="136" height="30" rx="6" fill="#FFF7ED" stroke="#FDBA74" stroke-width="0.5"/>
-<text x="118" y="381" text-anchor="middle" font-size="12" font-weight="600" fill="#9A3412" dominant-baseline="central">NAT gateway</text>
+<rect x="50" y="329" width="136" height="36" rx="6" fill="#FFFBEB" stroke="#FCD34D" stroke-width="0.5"/>
+<text x="118" y="347" text-anchor="middle" font-size="13" font-weight="600" fill="#92400E" dominant-baseline="central">EC2 instance</text>
+<rect x="50" y="370" width="136" height="28" rx="6" fill="#FFF7ED" stroke="#FDBA74" stroke-width="0.5"/>
+<text x="118" y="384" text-anchor="middle" font-size="12" font-weight="600" fill="#9A3412" dominant-baseline="central">NAT gateway</text>
 
 <!-- Subnet public-1b -->
 <rect x="212" y="284" width="158" height="118" rx="8" fill="white" stroke="#A7F3D0" stroke-width="0.5"/>
