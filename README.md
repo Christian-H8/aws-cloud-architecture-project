@@ -28,7 +28,7 @@ A progressive, hands-on AWS architecture project built to demonstrate real cloud
 - Configured CloudWatch alarms tied to the SNS topic — when an alarm fires, an email is delivered automatically
 
 ### What I broke and how I found it
-Stopped the application process on the EC2 instance to simulate a service outage. Watched the CloudWatch alarm transition from OK to ALARM state, received the SNS email notification, and confirmed the failure in CloudWatch Logs. This validated the full monitoring pipeline: failure → metric breach → alarm → notification.
+Stopped the application process on the EC2 instance to simulate a service outage. Watched the CloudWatch alarm transition from OK to ALARM state, received the SNS email notification, and confirmed the failure in the CloudWatch alarm history. This validated the full monitoring pipeline: failure → metric breach → alarm → notification.
 
 ![CloudWatch alarm in ALARM state](screenshots/phase1-CloudWatchAlarm.png)
 ![SNS email notification](screenshots/phase1-SNS-Email.png)
@@ -83,8 +83,8 @@ Recovery required signing in as the root user — the only principal that retain
 - Provisioned four subnets across two Availability Zones: two public (`10.0.1.0/24`, `10.0.2.0/24`) and two private (`10.0.3.0/24`, `10.0.4.0/24`). Spreading across AZs means the architecture survives an AZ-level failure
 - Created and attached an Internet Gateway, then configured the public route table with a `0.0.0.0/0 → IGW` rule — this route is what makes a subnet public, not its name
 - Configured a private route table with no IGW route, ensuring private subnets are unreachable from the internet at the routing level
-- Launched a NAT Gateway in the public subnet with an Elastic IP, then added a `0.0.0.0/0 → NAT` route to the private route table — private resources can initiate outbound connections but remain unreachable inbound
-- Re-launched the EC2 web server into `project1-public-2a`, replacing the default VPC deployment with a properly isolated network
+- Launched a NAT Gateway in `project1-public-1a` with an Elastic IP, then added a `0.0.0.0/0 → NAT` route to the private route table — private resources can initiate outbound connections but remain unreachable inbound
+- Re-launched the EC2 web server into `project1-public-1a`, replacing the default VPC deployment with a properly isolated network
 - Enabled VPC Flow Logs on the VPC, shipping to a CloudWatch Logs log group with 7-day retention
 
 ![VPC Resource Map showing full topology](screenshots/phase3-VPC-ResourceMap.png)
@@ -93,7 +93,7 @@ Recovery required signing in as the root user — the only principal that retain
 ![Private route table with 0.0.0.0/0 → NAT](screenshots/phase3-PrivateRouteTable.png)
 
 ![NAT Gateway with attached Elastic IP](screenshots/phase3-NATGateway.png)
-![EC2 web server running in project1-public-2a](screenshots/phase3-EC2-InVPC.png)
+![EC2 web server running in project1-public-1a](screenshots/phase3-EC2-InVPC.png)
 ![VPC Flow Logs configured with 7-day retention](screenshots/phase3-FlowLogs-Config.png)
 
 ### What I broke and how I found it
@@ -118,8 +118,8 @@ Restored the IGW route and confirmed the site loaded again.
 - REJECT in Flow Logs means a packet was blocked by a security group or NACL — typically internet scanners hitting closed ports. A REJECT is a useful security signal, but its absence does not mean the network is healthy
 - A VPC Flow Log line decoded: `version account-id interface-id srcaddr dstaddr srcport dstport protocol packets bytes start end action log-status` — the `action` field is ACCEPT or REJECT, `log-status` OK means the log was captured successfully
 - NAT Gateways are zonal resources. One NAT per AZ is the production pattern — a single NAT is a single point of failure. This project uses one NAT as a cost tradeoff; production would use two
-- Elastic IPs are static public IP addresses owned until explicitly released. AWS charges for allocated but unattached Elastic IPs — always release them when deleting the attached resource
-- The private subnets and NAT Gateway are built and wired correctly but not yet exercised — they will be validated when RDS is added in Phase 4
+- Elastic IPs are static public IP addresses owned until explicitly released. As of February 2024, AWS charges $0.005/hour for every public IPv4 address — attached or unattached — so release Elastic IPs as soon as the attached resource is decommissioned
+- The private subnets are built and wired correctly but not yet exercised — they will host RDS in Phase 4. The NAT Gateway path (private → internet) remains unused in the current architecture because RDS does not require outbound internet, but it is in place for future workloads that do (e.g., a Lambda inside the VPC, or a private EC2 pulling package updates)
 
 ---
 
@@ -188,6 +188,6 @@ Phases 1–3 stayed within AWS Free Tier limits. Phase 4 introduces resources th
 
 - **RDS Multi-AZ** is not Free Tier — Free Tier RDS covers single-AZ `db.t2/t3.micro` only. The standby replica adds compute and storage cost
 - **Application Load Balancer** runs ~$16/month if left active continuously, plus per-LCU charges
-- **Second EC2 instance** in `public-1b` doubles compute hours
+- **Second EC2 instance** in `project1-public-1b` doubles compute hours
 
 Cost-mitigation patterns used in the project: EC2 instances are stopped between sessions; the NAT Gateway (~$1/day) is deleted between sessions and recreated at the start of each working session to avoid idle charges; the ALB and RDS instance are kept running between sessions while Phase 4 is active. Phase 5 onward will reintroduce teardown discipline for the ALB and RDS.

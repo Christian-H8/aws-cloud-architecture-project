@@ -41,17 +41,17 @@
 <rect x="40" y="284" width="156" height="118" rx="8" fill="white" stroke="#A7F3D0" stroke-width="0.5"/>
 <text x="118" y="302" text-anchor="middle" font-size="12" fill="#0F766E" dominant-baseline="central">public-1a</text>
 <text x="118" y="317" text-anchor="middle" font-size="11" fill="#6B7280" dominant-baseline="central">10.0.1.0/24</text>
-<rect x="50" y="329" width="136" height="36" rx="6" fill="#FFFBEB" stroke="#FCD34D" stroke-width="0.5"/>
-<text x="118" y="347" text-anchor="middle" font-size="13" font-weight="600" fill="#92400E" dominant-baseline="central">EC2 instance</text>
+<rect x="50" y="329" width="136" height="32" rx="6" fill="#FFFBEB" stroke="#FCD34D" stroke-width="0.5"/>
+<text x="118" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#92400E" dominant-baseline="central">EC2 instance</text>
+<rect x="50" y="366" width="136" height="30" rx="6" fill="#FFF7ED" stroke="#FDBA74" stroke-width="0.5"/>
+<text x="118" y="381" text-anchor="middle" font-size="12" font-weight="600" fill="#9A3412" dominant-baseline="central">NAT gateway</text>
 
 <!-- Subnet public-1b -->
 <rect x="212" y="284" width="158" height="118" rx="8" fill="white" stroke="#A7F3D0" stroke-width="0.5"/>
 <text x="291" y="302" text-anchor="middle" font-size="12" fill="#0F766E" dominant-baseline="central">public-1b</text>
 <text x="291" y="317" text-anchor="middle" font-size="11" fill="#6B7280" dominant-baseline="central">10.0.2.0/24</text>
-<rect x="222" y="329" width="138" height="32" rx="6" fill="#FFFBEB" stroke="#FCD34D" stroke-width="0.5"/>
-<text x="291" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#92400E" dominant-baseline="central">EC2 instance</text>
-<rect x="222" y="366" width="138" height="30" rx="6" fill="#FFF7ED" stroke="#FDBA74" stroke-width="0.5"/>
-<text x="291" y="381" text-anchor="middle" font-size="12" font-weight="600" fill="#9A3412" dominant-baseline="central">NAT gateway</text>
+<rect x="222" y="329" width="138" height="36" rx="6" fill="#FFFBEB" stroke="#FCD34D" stroke-width="0.5"/>
+<text x="291" y="347" text-anchor="middle" font-size="13" font-weight="600" fill="#92400E" dominant-baseline="central">EC2 instance</text>
 
 <!-- Public route table -->
 <rect x="40" y="412" width="330" height="52" rx="8" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="0.5"/>
@@ -63,8 +63,7 @@
 <text x="205" y="496" text-anchor="middle" font-size="13" font-weight="600" fill="#0F766E" dominant-baseline="central">VPC Flow Logs</text>
 <text x="205" y="512" text-anchor="middle" font-size="11" fill="#6B7280" dominant-baseline="central">→ CloudWatch /vpc/project1-flowlogs</text>
 
-<!-- Dashed arrow: NAT → private zone -->
-<line x1="372" y1="381" x2="398" y2="381" stroke="#9CA3AF" stroke-width="0.5" stroke-dasharray="3 3" marker-end="url(#arrowdash)"/>
+<!-- (NAT → private zone arrow removed; the Private route table label "0.0.0.0/0 → NAT" makes the relationship explicit without the arrow having to cross public-1b) -->
 
 <!-- Private subnet zone -->
 <rect x="400" y="208" width="372" height="348" rx="12" fill="#FAF5FF" stroke="#C4B5FD" stroke-width="0.5"/>
