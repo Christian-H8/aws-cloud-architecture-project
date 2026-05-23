@@ -60,11 +60,12 @@
 <rect x="46" y="325" width="144" height="46" rx="8" fill="none" stroke="#FB923C" stroke-width="1.2" stroke-dasharray="5 3"/>
 <rect x="218" y="325" width="146" height="46" rx="8" fill="none" stroke="#FB923C" stroke-width="1.2" stroke-dasharray="5 3"/>
 <line x1="190" y1="348" x2="218" y2="348" stroke="#FB923C" stroke-width="1.2" stroke-dasharray="5 3"/>
+<text x="204" y="319" text-anchor="middle" font-size="9" font-weight="600" fill="#9A3412" dominant-baseline="central">project1-asg</text>
 
 <!-- Launch Template tile -->
 <rect x="40" y="412" width="156" height="44" rx="8" fill="#FFF7ED" stroke="#FB923C" stroke-width="0.5" stroke-dasharray="3 2"/>
 <text x="118" y="427" text-anchor="middle" font-size="12" font-weight="600" fill="#9A3412" dominant-baseline="central">Launch template</text>
-<text x="118" y="442" text-anchor="middle" font-size="10" fill="#9A3412" dominant-baseline="central">project1-lt v1 &#8594; project1-asg</text>
+<text x="118" y="442" text-anchor="middle" font-size="10" fill="#9A3412" dominant-baseline="central">project1-lt &#183; v1</text>
 
 <!-- Target tracking + CW alarms tile -->
 <rect x="212" y="412" width="158" height="44" rx="8" fill="#FFF7ED" stroke="#FB923C" stroke-width="0.5" stroke-dasharray="3 2"/>
