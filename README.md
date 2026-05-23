@@ -2,8 +2,8 @@
 
 A progressive, hands-on AWS architecture project built to demonstrate real cloud operations skills: provisioning, access control, storage management, cost optimization, monitoring, and fault diagnosis. Each phase intentionally introduces a misconfiguration that is traced and resolved using AWS-native logging tools.
 
-**Status:** Phases 1–4 complete | Phases 5–7 in progress  
-**Services used so far:** EC2, IAM, S3, VPC, ALB, RDS, CloudWatch, SNS, AWS Budgets, CloudTrail, VPC Flow Logs  
+**Status:** Phases 1–5 complete | Phases 6–7 in progress  
+**Services used so far:** EC2, IAM, S3, VPC, ALB, RDS, Auto Scaling, Launch Templates, CloudWatch, SNS, AWS Budgets, CloudTrail, VPC Flow Logs  
 **Target roles:** Cloud Support Associate · Junior Systems Administrator · Cloud Operations Specialist · Cloud Engineer · DevOps Engineer
 
 ---
@@ -12,7 +12,7 @@ A progressive, hands-on AWS architecture project built to demonstrate real cloud
 
 ![Architecture Diagram](architecture.svg)
 
-> Current state: Phases 1–4 complete. Diagram regenerated at the end of each phase.
+> Current state: Phases 1–5 complete. Diagram regenerated at the end of each phase.
 
 ---
 
@@ -167,28 +167,13 @@ Restored the rule and confirmed the MySQL connection re-established immediately.
 
 ---
 
-## Project Phases
+## Phase 5 — Auto Scaling Group
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 1 | EC2 + CloudWatch + SNS + Billing Alarm | Complete |
-| 2 | S3 + IAM + Lifecycle + Logging | Complete |
-| 3 | VPC + Networking | Complete |
-| 4 | ALB + RDS Multi-AZ | Complete |
-| 5 | Auto Scaling Group | Upcoming |
-| 6 | Lambda + SQS (serverless + decoupling) | Upcoming |
-| 7 | CloudFront + Route 53 + ACM (optional polish) | Upcoming |
+**Services:** EC2, Auto Scaling, Launch Templates, ALB, CloudWatch
 
----
-
-## Cost Controls
-
-A billing budget alarm was configured in Phase 1 before any resources were provisioned. EC2 compute uses `t3.micro` instances, and RDS uses `db.t3.micro`.
-
-Phases 1–3 stayed within AWS Free Tier limits. Phase 4 introduces resources that fall outside Free Tier and incur ongoing charges, which are accepted as the cost of practicing production-grade architecture:
-
-- **RDS Multi-AZ** is not Free Tier — Free Tier RDS covers single-AZ `db.t2/t3.micro` only. The standby replica adds compute and storage cost
-- **Application Load Balancer** runs ~$16/month if left active continuously, plus per-LCU charges
-- **Second EC2 instance** in `project1-public-1b` doubles compute hours
-
-Cost-mitigation patterns: EC2 instances are stopped between sessions. The NAT Gateway is torn down because no current workload exercises it, and will be recreated when a future phase needs private-subnet egress. The ALB is kept running through the remaining phases. The RDS Multi-AZ instance will be stopped at the end of Phase 4 since no later phase requires a database.
+### What I built
+- Created a Launch Template from the existing Phase 4 EC2 configuration to serve as a reproducible blueprint for every ASG-launched instance — instance type, AMI, security group, and user data defined once and applied consistently across each launch
+- Replaced the two static EC2 instances from Phase 4 with an Auto Scaling Group spanning both public subnets (`project1-public-1a` and `project1-public-1b`), configured with minimum 1, desired 2, and maximum 4. The Phase 4 instances were stopped and deregistered from the target group so the ASG could take over without competing with manually managed compute
+- Attached the ASG to the existing target group (`project1-tg`) and enabled ELB health checks at the ASG level with a 300-second instance warmup. The ASG now uses the ALB's health verdict (HTTP 200 on port 80) to decide whether an instance should be replaced, not just EC2 status checks
+- Added a target tracking scaling policy targeting 50% average CPU utilization across the group. Target tracking automatically creates two CloudWatch alarms — `TargetTracking-…-AlarmHigh` and `TargetTracking-…-AlarmLow` — which become the diagnostic entry point when scaling appears not to work
+- Extended the launch template's user data to inject the instance's hostname into the served page title, making ALB round-robin routing dir
