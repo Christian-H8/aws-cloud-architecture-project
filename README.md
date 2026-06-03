@@ -176,4 +176,66 @@ Restored the rule and confirmed the MySQL connection re-established immediately.
 - Replaced the two static EC2 instances from Phase 4 with an Auto Scaling Group spanning both public subnets (`project1-public-1a` and `project1-public-1b`), configured with minimum 1, desired 2, and maximum 4. The Phase 4 instances were stopped and deregistered from the target group so the ASG could take over without competing with manually managed compute
 - Attached the ASG to the existing target group (`project1-tg`) and enabled ELB health checks at the ASG level with a 300-second instance warmup. The ASG now uses the ALB's health verdict (HTTP 200 on port 80) to decide whether an instance should be replaced, not just EC2 status checks
 - Added a target tracking scaling policy targeting 50% average CPU utilization across the group. Target tracking automatically creates two CloudWatch alarms — `TargetTracking-…-AlarmHigh` and `TargetTracking-…-AlarmLow` — which become the diagnostic entry point when scaling appears not to work
-- Extended the launch template's user data to inject the instance's hostname into the served page title, making ALB round-robin routing dir
+- Extended the launch template's user data to inject the instance's hostname into the served page title, making ALB round-robin routing directly observable in the browser when refreshing
+
+![EC2 console: ASG-launched instance running alongside stopped Phase 4 instances during migration](screenshots/phase5-EC2-Instances.png)
+![Target group during migration — ASG instances healthy, deregistered Phase 4 instances marked unhealthy until removed](screenshots/phase5-TG-MigrationState.png)
+![CloudWatch alarms automatically created by the target tracking scaling policy](screenshots/phase5-TargetTracking-Alarms.png)
+
+### What I broke and how I found it
+
+**Break A — Fleet drain.** Set desired and minimum capacity to 0, forcing the ASG to terminate every instance in the group. The target group immediately lost all healthy targets and the ALB began returning **503 Service Temporarily Unavailable** — distinct from 502: a 503 from an ALB means *no healthy targets exist at all*, while a 502 means a target was selected but returned an unparseable response. The ASG Activity tab recorded each termination with exact timestamps and the trigger reason (`a user request update of AutoScalingGroup constraints to min: 0, max: 4, desired: 0`).
+
+![ASG capacity set to desired 0 / min 0 / max 4, status "Updating capacity"](screenshots/phase5-BreakA-ASG-Draining.png)
+![ALB returning 503 Service Temporarily Unavailable from the ALB DNS hostname](screenshots/phase5-BreakA-ALB-503.png)
+![Target group with zero registered targets while the ALB serves 503](screenshots/phase5-BreakA-TG-NoTargets.png)
+![ASG Activity history with each termination event and its cause string](screenshots/phase5-BreakA-ASG-Activity.png)
+
+**Break B — Bad deployment simulation.** Created a new launch template version (v2) with intentionally broken user data: Apache was installed but the `systemctl start httpd` line was omitted, so the daemon never came up. Switched the ASG to launch from v2 and terminated the existing instances to force replacement. Within a minute the target group flagged both new instances as `Health checks failed` on port 80 — they were reachable, but Apache wasn't answering.
+
+The ASG, however, kept reporting **2/2 Healthy** on its capacity overview during the same window. The two views disagreed because the 300-second instance warmup was actively suppressing the ELB unhealthy verdict at the ASG level — during warmup, freshly launched instances are exempted from ELB health checks even when ELB checks are configured on the group. The ALB never honors that exemption: it routes only to targets passing its own check, which is why the target group surfaced the failure immediately while the ASG did not. Left alone past the warmup window, the ASG would eventually have terminated and replaced the instances.
+
+![Target group showing 0 Healthy / 2 Unhealthy after switching to broken launch template v2](screenshots/phase5-BreakB-TG-Unhealthy.png)
+![ASG capacity overview reporting 2/2 Healthy under launch template v2 — same moment in time, opposite verdict](screenshots/phase5-BreakB-ASG-Healthy.png)
+
+The diagnostic lesson: the ASG and the target group are two independent monitoring sources, and during the warmup window they can disagree about whether the fleet is serving traffic. Reading only the ASG view would have shown a healthy fleet; reading only the target group would have shown an outage. Both are needed to understand the actual state.
+
+Recovered by reverting the ASG to launch template v1 and terminating the broken instances, which forced the ASG to relaunch from the working template.
+
+### What I learned
+- Switching a launch template version on an ASG does not replace running instances — it only affects future launches. Existing instances must be terminated manually (or replaced via an instance refresh) to pick up the new version
+- The ASG and the ALB run independent health checks. EC2 status checks pass as long as the hypervisor and OS are alive; ELB health checks pass only if the application is responding correctly on the configured port. A broken deployment can appear healthy to the ASG while the ALB is already routing around it
+- Instance warmup is a double-edged setting. It prevents a freshly launched instance at 0% CPU from being counted as evidence of low load (which would otherwise trigger premature scale-in), but during the warmup window it also suppresses the ELB unhealthy verdict at the ASG level. A broken deployment that crashes at startup can look healthy to the ASG for the full warmup period before the group reacts
+- 503 Service Unavailable and 502 Bad Gateway from an ALB describe different failures. 503 means no healthy targets exist in the target group at all. 502 means a target was selected but returned an unparseable response — typically an application-layer crash rather than a fleet-wide outage. Knowing which one you're seeing tells you where to look first
+- Target tracking scaling policies automatically create two CloudWatch alarms — `AlarmHigh` (triggers scale-out) and `AlarmLow` (triggers scale-in). When a scaling policy appears not to be working, those alarms are the first place to check before debugging the policy itself
+- The ASG Activity history is the authoritative audit log for scaling actions. Every launch, termination, and capacity adjustment is recorded with a timestamp, the EC2 instance ID, and the cause string — the fastest way to reconstruct what the ASG did and why during an incident
+
+---
+
+## Project Phases
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 1 | EC2 + CloudWatch + SNS + Billing Alarm | Complete |
+| 2 | S3 + IAM + Lifecycle + Logging | Complete |
+| 3 | VPC + Networking | Complete |
+| 4 | ALB + RDS Multi-AZ | Complete |
+| 5 | Auto Scaling Group | Complete |
+| 6 | Lambda + SQS (serverless + decoupling) | Upcoming |
+| 7 | CloudFront + Route 53 + ACM (optional polish) | Upcoming |
+
+---
+
+## Cost Controls
+
+A billing budget alarm was configured in Phase 1 before any resources were provisioned. EC2 compute uses `t3.micro` instances, and RDS uses `db.t3.micro`.
+
+Phases 1–3 stayed within AWS Free Tier limits. Phase 4 introduces resources that fall outside Free Tier and incur ongoing charges, which are accepted as the cost of practicing production-grade architecture:
+
+- **RDS Multi-AZ** is not Free Tier — Free Tier RDS covers single-AZ `db.t2/t3.micro` only. The standby replica adds compute and storage cost
+- **Application Load Balancer** runs ~$16/month if left active continuously, plus per-LCU charges
+- **Second EC2 instance** in `project1-public-1b` doubles compute hours
+
+Cost-mitigation patterns: EC2 instances are stopped between sessions. The NAT Gateway is torn down because no current workload exercises it, and will be recreated when a future phase needs private-subnet egress. The ALB is kept running through the remaining phases. The RDS Multi-AZ instance will be stopped at the end of Phase 4 since no later phase requires a database.
+
+Phase 5 adds no new standing cost — the Auto Scaling Group replaces the two static EC2 instances rather than running alongside them, and Launch Templates and Auto Scaling are themselves free. Between sessions the ASG is scaled to desired/min 0, which terminates all instances while preserving the configuration for the next session.
