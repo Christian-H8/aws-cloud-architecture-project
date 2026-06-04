@@ -2,8 +2,8 @@
 
 A progressive, hands-on AWS architecture project built to demonstrate real cloud operations skills: provisioning, access control, storage management, cost optimization, monitoring, and fault diagnosis. Each phase intentionally introduces a misconfiguration that is traced and resolved using AWS-native logging tools.
 
-**Status:** Phases 1–5 complete | Phases 6–7 in progress  
-**Services used so far:** EC2, IAM, S3, VPC, ALB, RDS, Auto Scaling, Launch Templates, CloudWatch, SNS, AWS Budgets, CloudTrail, VPC Flow Logs  
+**Status:** Phases 1–6 complete | Phase 7 (CloudFront + Route 53) deferred  
+**Services used so far:** EC2, IAM, S3, VPC, ALB, RDS, Auto Scaling, Launch Templates, CloudWatch, SNS, AWS Budgets, CloudTrail, VPC Flow Logs, Lambda, EventBridge Scheduler, SQS  
 **Target roles:** Cloud Support Associate · Junior Systems Administrator · Cloud Operations Specialist · Cloud Engineer · DevOps Engineer
 
 ---
@@ -12,7 +12,7 @@ A progressive, hands-on AWS architecture project built to demonstrate real cloud
 
 ![Architecture Diagram](architecture.svg)
 
-> Current state: Phases 1–5 complete. Diagram regenerated at the end of each phase.
+> Current state: Phases 1–6 complete. Diagram regenerated at the end of each phase.
 
 ---
 
@@ -212,6 +212,61 @@ Recovered by reverting the ASG to launch template v1 and terminating the broken 
 
 ---
 
+## Phase 6 — Lambda + SQS
+
+**Services:** Lambda, IAM, EventBridge Scheduler, SQS, S3, CloudWatch Logs
+
+### What I built
+
+**Piece 1 — Scheduled EC2 stop automation (Lambda + EventBridge)**
+
+- Created a scoped IAM execution role (`project1-lambda-ec2-role`) with EC2 and CloudWatch Logs permissions — the execution role is how Lambda authenticates to AWS services without storing credentials anywhere
+- Wrote a Python Lambda function (`project1-ec2-stopper`) that finds all running instances in `project1-asg` by tag filter and stops them — tag-based targeting means the function survives ASG instance replacements without any code change
+- Set a 30-second timeout after discovering the default 3-second timeout was too short for the EC2 `DescribeInstances` call to complete — always size the timeout to the slowest call the function makes, not the default
+- Created an EventBridge schedule (`project1_nightly_stop`) on a cron expression firing at 4:00 AM UTC that invokes the Lambda automatically — the complete "automate boring sysadmin work" pattern: EventBridge decides *when*, Lambda does the *work*
+
+![EventBridge schedule project1_nightly_stop firing at 4:00 AM UTC](screenshots/phase6-EventBridge-Schedule.png)
+![ASG instances transitioning to Stopped after a manual invoke](screenshots/phase6-ec2-stopper-Run.png)
+
+**Piece 2 — S3 upload processing pipeline (S3 → SQS → Lambda)**
+
+- Created an SQS standard queue (`project1-upload-queue`) with a resource-based access policy allowing S3 to send messages — S3 cannot write to a queue without explicit permission at the resource level, the same layered-permission model from Phase 2
+- Configured an S3 event notification on the Phase 2 bucket to fire a message into the queue on every object PUT — S3 drops a structured JSON payload (bucket, key, size, timestamp) and moves on regardless of whether anything is ready to process it
+- Created a second IAM execution role (`project1-lambda-sqs-role`) scoped to SQS and CloudWatch Logs only — no EC2 access, no S3 access, only what the function needs
+- Wrote a Python Lambda function (`project1-upload-processor`) that parses the SQS message body, extracts the S3 event metadata, and logs it to CloudWatch Logs
+- Configured SQS as a Lambda trigger with batch size 1 — AWS manages the queue polling automatically, the function fires within seconds of a message arriving
+
+![S3 PUT event notification on the Phase 2 bucket wiring S3 → SQS](screenshots/phase6-S3-EventNotification.png)
+
+**End-to-end test:** Uploaded `test-upload.txt` to the Phase 2 bucket. CloudWatch Logs confirmed Lambda fired and logged the bucket name, file key, size, and event timestamp within one second of the upload — zero manual steps after the initial trigger.
+
+![CloudWatch Logs showing the parsed S3 upload event](screenshots/phase6-CloudWatchLogs-UploadEvent.png)
+
+### What I broke and how I found it
+
+Removed `AmazonEC2FullAccess` from `project1-lambda-ec2-role` to simulate a misconfigured execution role — the most common Lambda failure pattern when permissions are tightened after initial deployment.
+
+Ran the function manually. The Lambda console returned a generic failure with no detail about the cause.
+
+Navigated to CloudWatch Logs via the "logs" link in the test result panel and opened the most recent log stream. The error was explicit: `UnauthorizedOperation` on `ec2:DescribeInstances`, showing the exact API call that was denied and under which role.
+
+![CloudWatch Logs showing UnauthorizedOperation on ec2:DescribeInstances](screenshots/phase6-CloudWatchLogs-Unauthorized.png)
+
+The key diagnostic lesson: Lambda execution failures caused by IAM don't surface as console alerts or dashboard warnings — they surface as exceptions in CloudWatch Logs. Finding them requires knowing where to look. The path is always: failed invocation → Lambda → Monitor → View CloudWatch Logs → most recent stream.
+
+Restored the EC2 policy and confirmed the function returned cleanly.
+
+### What I learned
+
+- Lambda functions authenticate to AWS via an IAM execution role — no access keys stored on disk, credentials rotate automatically via the Lambda service. This is the same instance-role pattern from Phase 4's EC2 → S3 access
+- The default Lambda timeout is 3 seconds. API calls to services like EC2 can exceed this — always set the timeout based on the slowest call the function makes, not the default
+- SQS decouples the producer (S3) from the consumer (Lambda). S3 doesn't know or care whether Lambda is running, throttled, or mid-deployment — it drops the message and moves on. Lambda processes it when it gets to it
+- SNS (Phase 1) pushed a notification to a human; SQS (Phase 6) queued work for another service. Same event-driven idea, different consumption model — SNS is fan-out, SQS is buffered processing
+- S3 event notifications are configured at the bucket level, not the object level — one rule covers every upload to the bucket. The notification payload is a structured JSON document containing the bucket name, object key, size, ETag, and event timestamp
+- IAM permission errors on Lambda surface in CloudWatch Logs, not in the Lambda console or any dashboard alert. The diagnostic path is always: failed invocation → CloudWatch Logs → log stream → find the `UnauthorizedOperation` or `AccessDenied` line
+
+---
+
 ## Project Phases
 
 | Phase | Focus | Status |
@@ -221,8 +276,8 @@ Recovered by reverting the ASG to launch template v1 and terminating the broken 
 | 3 | VPC + Networking | Complete |
 | 4 | ALB + RDS Multi-AZ | Complete |
 | 5 | Auto Scaling Group | Complete |
-| 6 | Lambda + SQS (serverless + decoupling) | Upcoming |
-| 7 | CloudFront + Route 53 + ACM (optional polish) | Upcoming |
+| 6 | Lambda + SQS (serverless + decoupling) | Complete |
+| 7 | CloudFront + Route 53 + ACM (optional polish) | Deferred |
 
 ---
 
@@ -239,3 +294,5 @@ Phases 1–3 stayed within AWS Free Tier limits. Phase 4 introduces resources th
 Cost-mitigation patterns: EC2 instances are stopped between sessions. The NAT Gateway is torn down because no current workload exercises it, and will be recreated when a future phase needs private-subnet egress. The ALB is kept running through the remaining phases. The RDS Multi-AZ instance will be stopped at the end of Phase 4 since no later phase requires a database.
 
 Phase 5 adds no new standing cost — the Auto Scaling Group replaces the two static EC2 instances rather than running alongside them, and Launch Templates and Auto Scaling are themselves free. Between sessions the ASG is scaled to desired/min 0, which terminates all instances while preserving the configuration for the next session.
+
+Phase 6 adds no standing cost — Lambda, SQS, and EventBridge Scheduler bill only per invocation and stay well within Free Tier at this volume. The `project1-ec2-stopper` function turns the manual "stop EC2 between sessions" habit into scheduled infrastructure.
